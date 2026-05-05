@@ -126,7 +126,7 @@ async def process_video(request: VideoRequest, user_id: Optional[str] = "guest")
             # Step 3: Chunking & Vector DB
             yield f"data: {json.dumps({'step': 'indexing', 'message': 'Optimizing for search & chat...', 'percent': 65})}\n\n"
             chunks = chunk_transcript(transcript_res)
-            store_chunks_in_db(video_id, chunks)
+            await store_chunks_in_db(video_id, chunks)
             
             # Step 4: Summary, Quiz, Flashcards, Mindmap, Chapters
             yield f"data: {json.dumps({'step': 'analyze', 'message': 'AI generating comprehensive learning materials...', 'percent': 85})}\n\n"
@@ -211,7 +211,7 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 # Audio Processing (Podcasts/Lectures)
                 content_type = "audio"
                 thumbnail = "https://cdn-icons-png.flaticon.com/512/860/860155.png" # Audio logo
-                media_url = f"http://localhost:8000/api/media/{file_id}.{ext}"
+                media_url = ""  # Files are processed and discarded; transcript is in MongoDB
                 
                 yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Transcribing audio (AI)...', 'percent': 40})}\n\n"
                 transcript_res = transcribe_audio(temp_path)
@@ -221,7 +221,7 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 # Video Extraction
                 content_type = "video"
                 thumbnail = "" # Will be default logo in frontend for now
-                media_url = f"http://localhost:8000/api/media/{file_id}.{ext}"
+                media_url = ""  # Files are processed and discarded; transcript is in MongoDB
                 
                 yield f"data: {json.dumps({'step': 'download', 'message': 'Extracting audio from video...', 'percent': 25})}\n\n"
                 audio_path = extract_audio_from_video(temp_path)
@@ -239,7 +239,7 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                     chunks.append({"text": full_text[i:i+1000], "start": i, "end": i + 1000})
             else:
                 chunks = chunk_transcript(transcript_res)
-            store_chunks_in_db(file_id, chunks)
+            await store_chunks_in_db(file_id, chunks)
             
             # Step 3: AI Analysis
             yield f"data: {json.dumps({'step': 'analyze', 'message': 'AI generating study materials...', 'percent': 85})}\n\n"
@@ -468,7 +468,7 @@ async def chat_with_video(video_id: str, query: ChatQuery, user_id: str = "guest
         # Save user message
         await add_chat_message(user_id, video_id, "user", query.question)
         
-        response = answer_video_query(video_id, query.question)
+        response = await answer_video_query(video_id, query.question)
         
         # Save assistant message
         await add_chat_message(user_id, video_id, "assistant", response["answer"])

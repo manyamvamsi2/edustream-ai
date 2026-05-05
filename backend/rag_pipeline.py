@@ -1,12 +1,12 @@
 from groq_api import generate_completion
 from vectordb import search_chunks
 
-def answer_video_query(video_id: str, query: str) -> dict:
+async def answer_video_query(video_id: str, query: str) -> dict:
     """
-    Retrieves context from the video's transcript in ChromaDB and asks the LLM to answer the query.
+    Retrieves context from the video's transcript in MongoDB and asks the LLM to answer the query.
     Returns the answer and the timestamp references used.
     """
-    relevant_chunks = search_chunks(video_id, query, top_k=5)
+    relevant_chunks = await search_chunks(video_id, query, top_k=5)
     
     context_parts = []
     timestamps = []

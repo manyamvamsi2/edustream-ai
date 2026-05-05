@@ -5,7 +5,7 @@ python-multipart
 yt-dlp
 openai-whisper
 sentence-transformers
-chromadb
+numpy
 requests
 pydantic
 python-dotenv

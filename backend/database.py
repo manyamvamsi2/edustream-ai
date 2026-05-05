@@ -23,6 +23,9 @@ async def ensure_indexes():
     await chat_history_collection.create_index([("user_id", 1), ("video_id", 1), ("timestamp", 1)])
     await submissions_collection.create_index([("user_id", 1), ("video_id", 1), ("challenge_id", 1)])
     await users_collection.create_index("user_id", unique=True)
+    # Embeddings collection (vector storage)
+    embeddings_collection = database.get_collection("embeddings")
+    await embeddings_collection.create_index("video_id")
 
 async def get_video_by_id(video_id: str):
     print(f"[DB] Fetching video metadata | ID: {video_id}")
