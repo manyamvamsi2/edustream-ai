@@ -185,6 +185,19 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 yield f"data: {json.dumps({'step': 'error', 'message': 'Unsupported file type. Please upload PDF, Video, or Audio.'})}\n\n"
                 return
 
+            # File size limits
+            MAX_PDF_SIZE = 10 * 1024 * 1024    # 10MB
+            MAX_MEDIA_SIZE = 50 * 1024 * 1024  # 50MB
+            max_size = MAX_PDF_SIZE if is_pdf else MAX_MEDIA_SIZE
+            file_content = await file.read()
+            file_size = len(file_content)
+            if file_size > max_size:
+                max_label = "10MB" if is_pdf else "50MB"
+                yield f"data: {json.dumps({'step': 'error', 'message': f'File too large ({file_size / (1024*1024):.1f}MB). Maximum: {max_label}.'})}\n\n"
+                return
+            # Reset file position for saving
+            await file.seek(0)
+
             yield f"data: {json.dumps({'step': 'info', 'message': f'Processing {filename}...', 'percent': 10})}\n\n"
             
             # Save file

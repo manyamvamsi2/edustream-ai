@@ -183,11 +183,25 @@ export default function Home() {
       setShowAuth(true);
       return;
     }
+
+    // File size limits (in bytes)
+    const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB for video/audio
+    const MAX_PDF_SIZE = 10 * 1024 * 1024;   // 10MB for PDFs
+    const isVideo = file.type.startsWith('video/');
+    const isAudio = file.type.startsWith('audio/');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const maxSize = isPdf ? MAX_PDF_SIZE : MAX_VIDEO_SIZE;
+    const maxLabel = isPdf ? '10MB' : '50MB';
+
+    if (file.size > maxSize) {
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+      alert(`File too large (${fileSizeMB}MB). Maximum allowed: ${maxLabel} for ${isPdf ? 'PDFs' : 'video/audio'}.`);
+      return;
+    }
+
     setLoading(true);
     setProgressPercent(0);
     setProgressStep("info");
-    const isVideo = file.type.startsWith('video/');
-    const isAudio = file.type.startsWith('audio/');
     setProgressMessage((isVideo || isAudio) ? "Uploading media..." : "Uploading document...");
     setShowHistory(false);
     setShowProfile(false);
