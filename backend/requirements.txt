@@ -3,7 +3,7 @@ uvicorn
 gunicorn
 python-multipart
 yt-dlp
-openai-whisper
+groq
 sentence-transformers
 numpy
 requests

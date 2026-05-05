@@ -11,7 +11,7 @@ from typing import Optional
 # Load environment variables
 load_dotenv()
 
-from video_downloader import download_youtube_audio, get_video_info, extract_audio_from_video
+from video_downloader import download_youtube_audio, get_video_info as fetch_video_info, extract_audio_from_video
 from transcription import transcribe_audio
 from chunking import chunk_transcript
 from vectordb import store_chunks_in_db
@@ -96,7 +96,7 @@ async def process_video(request: VideoRequest, user_id: Optional[str] = "guest")
         try:
             # Step 1: Info & Download
             yield f"data: {json.dumps({'step': 'info', 'message': 'Fetching video metadata...', 'percent': 10})}\n\n"
-            video_info = get_video_info(request.url)
+            video_info = fetch_video_info(request.url)
             
             yield f"data: {json.dumps({'step': 'download', 'message': 'Extracting audio from video...', 'percent': 25})}\n\n"
             audio_path = download_youtube_audio(request.url)
