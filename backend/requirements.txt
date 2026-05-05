@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+gunicorn
+python-multipart
+yt-dlp
+openai-whisper
+sentence-transformers
+chromadb
+requests
+pydantic
+python-dotenv
+motor
+gTTS
+pypdf

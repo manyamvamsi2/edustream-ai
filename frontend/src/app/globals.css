@@ -1,0 +1,226 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #6366f1; /* Indigo 500 */
+  --color-primary-dark: #4f46e5; /* Indigo 600 */
+  --color-background: #f8fafc; /* Slate 50 */
+  --color-accent: #8b5cf6; /* Violet 500 */
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    background-color: var(--color-background);
+    color: #1e293b; /* Slate 800 */
+}
+
+/* Enhanced Notes Styles */
+.prose {
+    max-width: none;
+}
+
+.prose h1 {
+    font-size: 1.875rem;
+    font-weight: 900;
+    color: #0f172a; /* Slate 900 */
+    margin-bottom: 2rem;
+    border-bottom: 4px solid #f1f5f9; /* Slate 100 approx */
+    padding-bottom: 1rem;
+}
+
+.prose h2 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1e293b; /* Slate 800 */
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.prose h2::before {
+    content: "";
+    width: 0.5rem;
+    height: 1.5rem;
+    background-color: #6366f1; /* Primary Indigo */
+    border-radius: 9999px;
+    margin-right: 0.75rem;
+}
+
+.prose p {
+    color: #475569; /* Slate 600 */
+    line-height: 1.625;
+    margin-bottom: 1.5rem;
+}
+
+.prose code {
+    background-color: #f1f5f9; /* Slate 100 */
+    color: #4f46e5; /* Primary Dark */
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.875rem;
+}
+
+.prose pre {
+    background-color: #0f172a; /* Slate 900 */
+    color: #f8fafc; /* Slate 50 */
+    padding: 1.5rem;
+    border-radius: 1rem;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+    overflow-x: auto;
+    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1);
+    border: 1px solid #1e293b; /* Slate 800 */
+}
+
+.prose pre code {
+    background-color: transparent;
+    color: #f8fafc;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1.625;
+}
+
+.prose ul, .prose ol {
+    margin-bottom: 2rem;
+}
+
+.prose li {
+    color: #475569; /* Slate 600 */
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 0.75rem;
+}
+
+.prose li::before {
+    content: "•";
+    color: #6366f1; /* Primary */
+    font-weight: 700;
+    margin-right: 0.75rem;
+}
+
+#notes-content.pdf-export-container {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 40px !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Aggressive reset to strip modern color functions (lab, oklch) which crash html2canvas */
+#notes-content.pdf-export-container,
+#notes-content.pdf-export-container * {
+    border-color: #e2e8f0 !important; /* hex slate-200 */
+    outline-color: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    background-image: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+}
+
+#notes-content.pdf-export-container h1,
+#notes-content.pdf-export-container h2,
+#notes-content.pdf-export-container h3,
+#notes-content.pdf-export-container h4 {
+    color: #0f172a !important; /* hex slate-900 */
+    border-bottom-color: #e2e8f0 !important;
+}
+
+#notes-content.pdf-export-container p,
+#notes-content.pdf-export-container li {
+    color: #334155 !important; /* hex slate-700 */
+}
+
+#notes-content.pdf-export-container a {
+    color: #4f46e5 !important; /* hex indigo-600 */
+    text-decoration: underline !important;
+}
+
+#notes-content.pdf-export-container pre, 
+#notes-content.pdf-export-container code {
+    background-color: #f1f5f9 !important; /* hex slate-100 */
+    color: #1e293b !important; /* hex slate-800 */
+    border: 1px solid #e2e8f0 !important;
+}
+
+@media print {
+    #notes-content.pdf-export-container {
+        padding: 0 !important;
+        margin: 0 !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+}
+
+/* Professional Loading Animations */
+@keyframes pulse-gentle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(0.98); }
+}
+
+@keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes slide-up {
+    from { transform: translateY(10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes scale-in {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.animate-pulse-gentle {
+    animation: pulse-gentle 3s ease-in-out infinite;
+}
+
+.animate-spin-slow {
+    animation: spin-slow 8s linear infinite;
+}
+
+.animate-slide-up {
+    animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+    animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.page-transition-enter {
+    opacity: 0;
+    transform: scale(0.98);
+}
+
+.page-transition-enter-active {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 400ms ease, transform 400ms ease;
+}
+
+/* Custom Scrollbar for premium feel */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+}

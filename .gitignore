@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/__pycache__/
+
+# Environment files (NEVER commit secrets)
+backend/.env
+frontend/.env.local
+frontend/.env.production.local
+
+# Build outputs
+frontend/.next/
+frontend/out/
+
+# Backend data (local dev only)
+backend/downloads/
+backend/chroma_db/
+backend/chroma_db_fixed/
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript build info
+*.tsbuildinfo
+frontend/tsc_output.txt
