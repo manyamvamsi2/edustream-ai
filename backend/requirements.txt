@@ -12,6 +12,7 @@ httpx==0.25.2
 requests==2.31.0
 pydantic==2.5.0
 python-dotenv==1.0.0
-motor==3.3.2
+motor==3.7.1
+pymongo==4.13.2
 gTTS==2.4.0
 pypdf==3.17.1
