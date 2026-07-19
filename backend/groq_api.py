@@ -1,51 +1,88 @@
 import os
-import requests
+import asyncio
+import logging
 import time
+from typing import Optional
 from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    import httpx
+    HAS_HTTPX = True
+except ImportError:
+    HAS_HTTPX = False
+    import requests
 
-def generate_completion(prompt: str) -> str:
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+def generate_completion(prompt: str, max_retries: int = 3) -> str:
     """
-    Exclusively uses Groq API for LLM completions with built-in retries.
+    Generates completion using Groq API with built-in retries and error handling.
+    Uses httpx if available for non-blocking I/O, falls back to requests.
     """
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("[!] ERROR: GROQ_API_KEY missing in .env")
-        return "GROQ_API_KEY_MISSING"
+        logger.error("GROQ_API_KEY missing in environment variables")
+        return "ERROR: GROQ_API_KEY_MISSING - Please set GROQ_API_KEY in .env file"
 
-    model = "llama-3.3-70b-versatile"
+    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
     data = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You are a helpful AI learning assistant. provide clear, structured, and informative educational content."},
+            {
+                "role": "system",
+                "content": "You are a helpful AI learning assistant. Provide clear, structured, and informative educational content."
+            },
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2000
     }
 
-    max_retries = 3
     for attempt in range(max_retries):
         try:
-            print(f"--- [GROQ API] Attempt {attempt + 1} | Model: {model} ---")
-            response = requests.post(url, headers=headers, json=data, timeout=30)
+            logger.info(f"Groq API call attempt {attempt + 1}/{max_retries} | Model: {model}")
             
+            if HAS_HTTPX:
+                with httpx.Client(timeout=30.0) as client:
+                    response = client.post(url, headers=headers, json=data)
+            else:
+                response = requests.post(url, headers=headers, json=data, timeout=30)
+            
+            # Handle rate limiting
             if response.status_code == 429:
-                # Rate limit hit
-                wait_time = (attempt + 1) * 2 # Simple linear backoff
-                print(f"--> [!] Rate limit reached. Retrying in {wait_time}s...")
+                wait_time = (attempt + 1) * 2
+                logger.warning(f"Rate limit reached. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
                 continue
-                
+            
+            # Raise for other HTTP errors
             response.raise_for_status()
-            print(f"--- [GROQ API] Call successful ---")
-            return response.json()['choices'][0]['message']['content']
+            
+            result = response.json()
+            completion = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+            
+            if not completion:
+                raise ValueError("Empty response from Groq API")
+            
+            logger.info("Groq API call successful")
+            return completion
             
         except Exception as e:
-            print(f"--> [!] GROQ ERROR (Attempt {attempt + 1}): {str(e)}")
+            logger.error(f"Groq API error (attempt {attempt + 1}): {str(e)}", exc_info=True)
+            
             if attempt == max_retries - 1:
-                return f"All Groq attempts failed. Error: {str(e)}"
+                error_msg = f"Failed after {max_retries} attempts: {str(e)}"
+                logger.error(error_msg)
+                return f"ERROR: {error_msg}"
+            
             time.sleep(2)
 
-    return "Completion failed after multiple retries."
+    return "ERROR: Completion failed after multiple retries"
