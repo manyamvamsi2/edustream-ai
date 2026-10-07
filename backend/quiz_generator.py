@@ -1,25 +1,36 @@
 from groq_api import generate_completion
 import json
 
-def generate_quiz(full_transcript: str) -> list[dict]:
+def generate_quiz(full_transcript: str, difficulty: str = "Medium") -> list[dict]:
     """
-    Generates a 3-question multiple choice quiz based on the video transcript.
+    Generates a 5-question multiple choice quiz based on the video transcript,
+    customized by requested difficulty level (Easy, Medium, Hard).
     """
     max_len = 12000
     truncated_transcript = full_transcript[:max_len]
     
+    diff_instructions = {
+        "Easy": "Target Beginners: focus on direct definitions, clear foundational facts, and explicit points directly stated in the material.",
+        "Medium": "Target Intermediate learners: test conceptual understanding, connections between ideas, and scenario applications.",
+        "Hard": "Target Advanced learners: challenge with tricky edge cases, deep reasoning, nuanced distinctions, and multi-step deduction."
+    }.get(difficulty.capitalize(), "test balanced conceptual understanding and core facts.")
+
     prompt = f"""
-You are an AI teacher. Create a 5-question multiple-choice quiz based on the following transcript.
+You are an expert AI teacher. Create a 5-question multiple-choice quiz based strictly on the key concepts taught in the following transcript.
+Target Difficulty: {difficulty.upper()} ({diff_instructions})
+Focus on understanding core concepts, facts, and ideas from the video.
+DO NOT create programming or code questions unless the video is explicitly teaching programming syntax.
 CRITICAL INSTRUCTION: Return ONLY a raw, perfectly valid JSON array of objects.
-The "answer" field MUST be the EXACT STRING from the "options" list.
+The "answer" field MUST be the EXACT STRING from the "options" list. Include "difficulty": "{difficulty.capitalize()}" for each item.
 
 Example format:
 [
   {{
-    "question": "What keyword is used to define a function in Python?",
-    "options": ["func", "define", "def", "function"],
-    "answer": "def",
-    "explanation": "In Python, the 'def' keyword is used to start a function definition."
+    "question": "What is the primary concept discussed in this section?",
+    "options": ["Concept A", "Concept B", "Concept C", "Concept D"],
+    "answer": "Concept A",
+    "explanation": "Concept A is highlighted as the primary mechanism.",
+    "difficulty": "{difficulty.capitalize()}"
   }}
 ]
 

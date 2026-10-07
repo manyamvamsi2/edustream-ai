@@ -12,3 +12,6 @@ python-dotenv
 motor
 gTTS
 pypdf
+python-docx
+python-pptx
+rank-bm25

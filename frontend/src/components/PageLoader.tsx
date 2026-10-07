@@ -7,21 +7,21 @@ export default function PageLoader() {
       <div className="relative">
         {/* Outer Glow / Ring */}
         <div className="absolute inset-0 bg-primary/20 rounded-[2.5rem] blur-2xl animate-pulse-gentle"></div>
-        
+
         {/* Branded Logo Container */}
         <div className="relative bg-white p-8 rounded-[3rem] shadow-2xl shadow-indigo-100 border border-slate-50 flex flex-col items-center">
           <div className="relative w-24 h-24 mb-6">
-            <img 
-              src="/logo.png" 
-              alt="Loading" 
+            <img
+              src="/logo.png"
+              alt="Loading"
               className="w-full h-full object-contain animate-pulse-gentle"
             />
-            
+
             {/* Orbital Ring */}
             <div className="absolute inset-[-12px] border-t-2 border-l-2 border-primary/40 rounded-full animate-spin-slow"></div>
             <div className="absolute inset-[-12px] border-b-2 border-r-2 border-accent/20 rounded-full animate-spin-slow" style={{ animationDirection: 'reverse', animationDuration: '6s' }}></div>
           </div>
-          
+
           <div className="flex flex-col items-center">
             <h3 className="text-xl font-black text-slate-900 tracking-tight">EduStream AI</h3>
             <div className="flex gap-1.5 mt-3">

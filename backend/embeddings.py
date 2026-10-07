@@ -16,6 +16,8 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
     Generates vector embeddings using a local SentenceTransformer model.
     Model is lazy-loaded to save RAM on startup.
     """
+    if not texts:
+        return []
     try:
         model = get_embedding_model()
         embeddings = model.encode(texts)

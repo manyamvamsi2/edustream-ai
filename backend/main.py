@@ -22,9 +22,13 @@ from rag_pipeline import (
     generate_flashcards,
     generate_chapters,
     generate_coding_challenges,
-    evaluate_user_code
+    evaluate_user_code,
+    generate_similar_problems,
+    generate_recommendations
 )
 from pypdf import PdfReader
+import docx
+from pptx import Presentation
 from quiz_generator import generate_quiz
 from fastapi.responses import FileResponse
 
@@ -63,6 +67,9 @@ from database import (
     chat_history_collection,
     get_submissions,
     add_submission,
+    add_feedback,
+    update_learner_knowledge,
+    get_learner_knowledge,
     ensure_indexes
 )
 
@@ -135,6 +142,8 @@ async def process_video(request: VideoRequest, user_id: Optional[str] = "guest")
             flashcard_data = generate_flashcards(video_id, full_transcript)
             chapter_data = generate_chapters(video_id, transcript_res.get("segments", []))
             challenges_data = generate_coding_challenges(video_id, full_transcript)
+            similar_problems_data = generate_similar_problems(video_id, full_transcript)
+            recommendations_data = generate_recommendations(video_id, full_transcript)
             
             # Step 5: Save & History
             metadata = {
@@ -149,7 +158,9 @@ async def process_video(request: VideoRequest, user_id: Optional[str] = "guest")
                 "quiz": quiz_data,
                 "flashcards": flashcard_data,
                 "chapters": chapter_data,
-                "challenges": challenges_data
+                "challenges": challenges_data,
+                "similar_problems": similar_problems_data,
+                "recommendations": recommendations_data
             }
             await save_video_metadata(video_id, metadata)
             
@@ -178,21 +189,24 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
         try:
             filename = file.filename
             is_pdf = filename.lower().endswith(".pdf")
+            is_docx = any(filename.lower().endswith(ext) for ext in [".docx", ".doc"])
+            is_pptx = any(filename.lower().endswith(ext) for ext in [".pptx", ".ppt"])
             is_video = any(filename.lower().endswith(ext) for ext in [".mp4", ".mov", ".webm", ".mkv"])
             is_audio = any(filename.lower().endswith(ext) for ext in [".mp3", ".wav"])
             
-            if not is_pdf and not is_video and not is_audio:
-                yield f"data: {json.dumps({'step': 'error', 'message': 'Unsupported file type. Please upload PDF, Video, or Audio.'})}\n\n"
+            if not is_pdf and not is_docx and not is_pptx and not is_video and not is_audio:
+                yield f"data: {json.dumps({'step': 'error', 'message': 'Unsupported file type. Please upload PDF, Word (DOCX), PowerPoint (PPTX), Video, or Audio.'})}\n\n"
                 return
 
             # File size limits
-            MAX_PDF_SIZE = 10 * 1024 * 1024    # 10MB
-            MAX_MEDIA_SIZE = 50 * 1024 * 1024  # 50MB
-            max_size = MAX_PDF_SIZE if is_pdf else MAX_MEDIA_SIZE
+            MAX_DOC_SIZE = 15 * 1024 * 1024    # 15MB for docs/slides
+            MAX_MEDIA_SIZE = 50 * 1024 * 1024  # 50MB for video/audio
+            is_document_file = is_pdf or is_docx or is_pptx
+            max_size = MAX_DOC_SIZE if is_document_file else MAX_MEDIA_SIZE
             file_content = await file.read()
             file_size = len(file_content)
             if file_size > max_size:
-                max_label = "10MB" if is_pdf else "50MB"
+                max_label = "15MB" if is_document_file else "50MB"
                 yield f"data: {json.dumps({'step': 'error', 'message': f'File too large ({file_size / (1024*1024):.1f}MB). Maximum: {max_label}.'})}\n\n"
                 return
             # Reset file position for saving
@@ -211,20 +225,62 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
             full_text = ""
             content_type = "document"
             thumbnail = "https://cdn-icons-png.flaticon.com/512/337/337946.png" # Default PDF Icon
-            duration = "PDF"
-            media_url = ""
+            duration = "Document"
+            media_url = f"/api/media/{file_id}.{ext}"
 
             if is_pdf:
                 # PDF Extraction
                 yield f"data: {json.dumps({'step': 'extract', 'message': 'Extracting text from PDF...', 'percent': 30})}\n\n"
                 reader = PdfReader(temp_path)
                 for page in reader.pages:
-                    full_text += page.extract_text() + "\n"
+                    extracted = page.extract_text() or ""
+                    full_text += extracted + "\n"
+                full_text = full_text.strip()
+                if not full_text:
+                    full_text = f"Uploaded PDF Document: {filename}. (Contains {len(reader.pages)} pages)."
+                duration = f"PDF ({len(reader.pages)} pages)"
+            elif is_docx:
+                # Word Document Extraction (DOCX)
+                yield f"data: {json.dumps({'step': 'extract', 'message': 'Extracting text & tables from Word DOCX...', 'percent': 30})}\n\n"
+                thumbnail = "https://cdn-icons-png.flaticon.com/512/337/337932.png" # Word icon
+                doc = docx.Document(temp_path)
+                extracted_lines = []
+                for p in doc.paragraphs:
+                    if p.text.strip():
+                        extracted_lines.append(p.text.strip())
+                for table in doc.tables:
+                    for row in table.rows:
+                        row_text = " | ".join([cell.text.strip() for cell in row.cells if cell.text.strip()])
+                        if row_text:
+                            extracted_lines.append(row_text)
+                full_text = "\n\n".join(extracted_lines).strip()
+                if not full_text:
+                    full_text = f"Uploaded Word Document: {filename}."
+                duration = "Word DOCX"
+            elif is_pptx:
+                # PowerPoint Slide Extraction (PPTX)
+                yield f"data: {json.dumps({'step': 'extract', 'message': 'Extracting slides from PowerPoint PPTX...', 'percent': 30})}\n\n"
+                thumbnail = "https://cdn-icons-png.flaticon.com/512/337/337949.png" # PPTX icon
+                prs = Presentation(temp_path)
+                slide_sections = []
+                for s_idx, slide in enumerate(prs.slides, 1):
+                    s_items = []
+                    for shape in slide.shapes:
+                        if shape.has_text_frame:
+                            for p in shape.text_frame.paragraphs:
+                                if p.text.strip():
+                                    s_items.append(p.text.strip())
+                    if s_items:
+                        slide_sections.append(f"### [Slide {s_idx}]\n" + "\n".join(f"- {item}" for item in s_items))
+                full_text = "\n\n".join(slide_sections).strip()
+                if not full_text:
+                    full_text = f"Uploaded PowerPoint Presentation: {filename}. (Contains {len(prs.slides)} slides)."
+                duration = f"PPTX ({len(prs.slides)} slides)"
             elif is_audio:
                 # Audio Processing (Podcasts/Lectures)
                 content_type = "audio"
                 thumbnail = "https://cdn-icons-png.flaticon.com/512/860/860155.png" # Audio logo
-                media_url = ""  # Files are processed and discarded; transcript is in MongoDB
+                media_url = f"/api/media/{file_id}.{ext}"
                 
                 yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Transcribing audio (AI)...', 'percent': 40})}\n\n"
                 transcript_res = transcribe_audio(temp_path)
@@ -234,7 +290,7 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 # Video Extraction
                 content_type = "video"
                 thumbnail = "" # Will be default logo in frontend for now
-                media_url = ""  # Files are processed and discarded; transcript is in MongoDB
+                media_url = f"/api/media/{file_id}.{ext}"
                 
                 yield f"data: {json.dumps({'step': 'download', 'message': 'Extracting audio from video...', 'percent': 25})}\n\n"
                 audio_path = extract_audio_from_video(temp_path)
@@ -242,24 +298,30 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Transcribing video audio (AI)...', 'percent': 45})}\n\n"
                 transcript_res = transcribe_audio(audio_path)
                 full_text = transcript_res.get("text", "")
-                duration = "Local Video" # Could extract real duration with ffprobe if needed
+                duration = "Local Video"
 
             # Step 2: Indexing
-            yield f"data: {json.dumps({'step': 'indexing', 'message': 'Optimizing for study chat...', 'percent': 65})}\n\n"
+            yield f"data: {json.dumps({'step': 'indexing', 'message': 'Optimizing for study chat & hybrid RAG...', 'percent': 65})}\n\n"
             chunks = []
-            if is_pdf:
+            if is_document_file:
                 for i in range(0, len(full_text), 1000):
-                    chunks.append({"text": full_text[i:i+1000], "start": i, "end": i + 1000})
+                    c = full_text[i:i+1000].strip()
+                    if c:
+                        chunks.append({"text": c, "start": i, "end": i + len(c)})
+                if not chunks and full_text:
+                    chunks.append({"text": full_text, "start": 0, "end": len(full_text)})
             else:
                 chunks = chunk_transcript(transcript_res)
             await store_chunks_in_db(file_id, chunks)
             
             # Step 3: AI Analysis
-            yield f"data: {json.dumps({'step': 'analyze', 'message': 'AI generating study materials...', 'percent': 85})}\n\n"
+            yield f"data: {json.dumps({'step': 'analyze', 'message': 'AI generating comprehensive study materials...', 'percent': 85})}\n\n"
             summary_data = generate_smart_summary(file_id, full_text)
             quiz_data = generate_quiz(full_text)
             flashcard_data = generate_flashcards(file_id, full_text)
             challenges_data = generate_coding_challenges(file_id, full_text)
+            similar_problems_data = generate_similar_problems(file_id, full_text)
+            recommendations_data = generate_recommendations(file_id, full_text)
             
             # Step 5: Save & History
             metadata = {
@@ -274,7 +336,9 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
                 "quiz": quiz_data,
                 "flashcards": flashcard_data,
                 "chapters": [],
-                "challenges": challenges_data
+                "challenges": challenges_data,
+                "similar_problems": similar_problems_data,
+                "recommendations": recommendations_data
             }
             await save_video_metadata(file_id, metadata)
             
@@ -323,11 +387,22 @@ async def get_transcript(video_id: str):
     return {"transcript": video["transcript"]}
 
 @app.get("/api/quiz/{video_id}")
-async def get_quiz(video_id: str):
+async def get_quiz(video_id: str, difficulty: Optional[str] = None):
     video = await get_video_by_id(video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    return {"quiz": video["quiz"]}
+    quiz = video.get("quiz", [])
+    if difficulty and video.get("transcript"):
+        matching = [q for q in quiz if q.get("difficulty", "").lower() == difficulty.lower()]
+        if not matching:
+            new_quiz = generate_quiz(video["transcript"], difficulty=difficulty)
+            await videos_collection.update_one(
+                {"video_id": video_id},
+                {"$set": {"quiz": new_quiz}}
+            )
+            return {"quiz": new_quiz}
+        return {"quiz": matching}
+    return {"quiz": quiz}
 
 @app.get("/api/translate/{video_id}")
 async def translate_video_content(video_id: str, lang: str):
@@ -398,14 +473,27 @@ async def get_mind_map(video_id: str):
         raise HTTPException(status_code=404, detail="Video not found")
     
     mindmap = video.get("mindmap")
-    if mindmap is None:
+    if not mindmap or not isinstance(mindmap, dict) or not mindmap.get("branches"):
         from rag_pipeline import generate_mind_map
-        mindmap = generate_mind_map(video_id, video["transcript"])
+        mindmap = generate_mind_map(video_id, video.get("transcript", ""))
         await videos_collection.update_one(
             {"video_id": video_id},
             {"$set": {"mindmap": mindmap}}
         )
         
+    return mindmap
+
+@app.post("/api/mindmap/refresh/{video_id}")
+async def refresh_mind_map(video_id: str):
+    video = await get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    from rag_pipeline import generate_mind_map
+    mindmap = generate_mind_map(video_id, video.get("transcript", ""))
+    await videos_collection.update_one(
+        {"video_id": video_id},
+        {"$set": {"mindmap": mindmap}}
+    )
     return mindmap
 
 
@@ -427,7 +515,7 @@ async def get_chapters(video_id: str):
     return {"chapters": chapters}
 
 @app.post("/api/quiz/refresh/{video_id}")
-async def refresh_quiz(video_id: str):
+async def refresh_quiz(video_id: str, difficulty: Optional[str] = "Medium"):
     video = await get_video_by_id(video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -436,8 +524,8 @@ async def refresh_quiz(video_id: str):
     if not full_transcript:
         raise HTTPException(status_code=400, detail="Transcript not available for regeneration")
     
-    print(f"--> [AI] Regenerating quiz for video {video_id}...")
-    new_quiz = generate_quiz(full_transcript)
+    print(f"--> [AI] Regenerating quiz ({difficulty}) for video {video_id}...")
+    new_quiz = generate_quiz(full_transcript, difficulty=difficulty or "Medium")
     
     # Update database
     await videos_collection.update_one(
@@ -460,6 +548,12 @@ async def delete_history_item(user_id: str, video_id: str):
     # Cascade delete: Remove the chat history associated with this video
     await chat_history_collection.delete_many({"user_id": user_id, "video_id": video_id})
     return {"status": "success"}
+
+@app.delete("/api/history/{user_id}")
+async def clear_all_history(user_id: str):
+    await history_collection.delete_many({"user_id": user_id})
+    await chat_history_collection.delete_many({"user_id": user_id})
+    return {"status": "success", "message": "All history cleared"}
 @app.get("/api/user/profile/{user_id}")
 async def get_profile(user_id: str):
     profile = await get_user_profile(user_id)
@@ -481,7 +575,10 @@ async def chat_with_video(video_id: str, query: ChatQuery, user_id: str = "guest
         # Save user message
         await add_chat_message(user_id, video_id, "user", query.question)
         
-        response = await answer_video_query(video_id, query.question)
+        video = await get_video_by_id(video_id)
+        content_type = video.get("content_type", "video") if video else "video"
+        
+        response = await answer_video_query(video_id, query.question, content_type=content_type)
         
         # Save assistant message
         await add_chat_message(user_id, video_id, "assistant", response["answer"])
@@ -568,6 +665,89 @@ async def get_challenge_submissions(video_id: str, challenge_id: str, user_id: s
     for s in submissions:
         s["_id"] = str(s["_id"])
     return {"submissions": submissions}
+
+@app.get("/api/similar-problems/{video_id}")
+async def get_similar_problems_endpoint(video_id: str, difficulty: Optional[str] = "Medium"):
+    video = await get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    problems = video.get("similar_problems")
+    if not problems:
+        problems = generate_similar_problems(video_id, video.get("transcript", ""), difficulty=difficulty or "Medium")
+        await videos_collection.update_one(
+            {"video_id": video_id},
+            {"$set": {"similar_problems": problems}}
+        )
+    return {"problems": problems}
+
+@app.post("/api/similar-problems/refresh/{video_id}")
+async def refresh_similar_problems_endpoint(video_id: str, difficulty: Optional[str] = "Medium", topic: Optional[str] = ""):
+    video = await get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    new_problems = generate_similar_problems(video_id, video.get("transcript", ""), difficulty=difficulty or "Medium", topic=topic or "")
+    await videos_collection.update_one(
+        {"video_id": video_id},
+        {"$set": {"similar_problems": new_problems}}
+    )
+    return {"problems": new_problems}
+
+@app.get("/api/recommendations/{video_id}")
+async def get_recommendations_endpoint(video_id: str, user_id: Optional[str] = "guest"):
+    video = await get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    recommendations = video.get("recommendations")
+    if not recommendations or not recommendations.get("recommended_topics"):
+        user_profile = await get_user_profile(user_id) if user_id != "guest" else {}
+        recommendations = generate_recommendations(video_id, video.get("transcript", ""), user_profile=user_profile)
+        await videos_collection.update_one(
+            {"video_id": video_id},
+            {"$set": {"recommendations": recommendations}}
+        )
+    return recommendations
+
+@app.post("/api/recommendations/refresh/{video_id}")
+async def refresh_recommendations_endpoint(video_id: str, user_id: Optional[str] = "guest"):
+    video = await get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    user_profile = await get_user_profile(user_id) if user_id != "guest" else {}
+    recommendations = generate_recommendations(video_id, video.get("transcript", ""), user_profile=user_profile)
+    await videos_collection.update_one(
+        {"video_id": video_id},
+        {"$set": {"recommendations": recommendations}}
+    )
+    return recommendations
+
+class FeedbackRequest(BaseModel):
+    user_id: Optional[str] = "guest"
+    video_id: str
+    feedback_type: str  # "chat", "summary", "quiz", "problem"
+    rating: str         # "positive" or "negative"
+    comment: Optional[str] = ""
+
+@app.post("/api/feedback")
+async def submit_feedback_endpoint(req: FeedbackRequest):
+    await add_feedback(req.user_id or "guest", req.video_id, req.feedback_type, req.rating, req.comment or "")
+    return {"status": "success", "message": "Feedback submitted successfully"}
+
+class LearnerProgressRequest(BaseModel):
+    user_id: str
+    video_id: Optional[str] = ""
+    topic: Optional[str] = ""
+    quiz_score: Optional[float] = None
+    challenge_completed: Optional[bool] = False
+
+@app.post("/api/learner/progress")
+async def record_learner_progress_endpoint(req: LearnerProgressRequest):
+    updated = await update_learner_knowledge(req.user_id, req.dict())
+    return {"status": "success", "learner_profile": updated}
+
+@app.get("/api/learner/progress/{user_id}")
+async def get_user_learner_progress_endpoint(user_id: str):
+    progress = await get_learner_knowledge(user_id)
+    return progress
 
 @app.get("/api/health")
 async def health_check():

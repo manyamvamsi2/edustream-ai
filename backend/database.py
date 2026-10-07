@@ -13,6 +13,7 @@ users_collection = database.get_collection("users")
 history_collection = database.get_collection("history")
 chat_history_collection = database.get_collection("chat_history")
 submissions_collection = database.get_collection("submissions")
+feedback_collection = database.get_collection("feedback")
 
 # Create indexes for production query performance
 async def ensure_indexes():
@@ -23,6 +24,7 @@ async def ensure_indexes():
     await chat_history_collection.create_index([("user_id", 1), ("video_id", 1), ("timestamp", 1)])
     await submissions_collection.create_index([("user_id", 1), ("video_id", 1), ("challenge_id", 1)])
     await users_collection.create_index("user_id", unique=True)
+    await feedback_collection.create_index([("user_id", 1), ("video_id", 1)])
     # Embeddings collection (vector storage)
     embeddings_collection = database.get_collection("embeddings")
     await embeddings_collection.create_index("video_id")
@@ -101,3 +103,82 @@ async def add_submission(user_id: str, video_id: str, challenge_id: str, submiss
         "timestamp": datetime.now()
     })
     return await submissions_collection.insert_one(submission_data)
+
+async def add_feedback(user_id: str, video_id: str, feedback_type: str, rating: str, comment: str = ""):
+    """Save user feedback and interaction rating on AI responses/materials."""
+    from datetime import datetime
+    record = {
+        "user_id": user_id,
+        "video_id": video_id,
+        "feedback_type": feedback_type, # e.g. "chat", "summary", "quiz", "problem"
+        "rating": rating, # "positive" (thumbs up) or "negative" (thumbs down)
+        "comment": comment,
+        "timestamp": datetime.now()
+    }
+    return await feedback_collection.insert_one(record)
+
+async def update_learner_knowledge(user_id: str, update_data: dict):
+    """
+    Loopback: Update Learner Profile & Knowledge Base based on quiz results,
+    exercises attempted, and feedback.
+    """
+    from datetime import datetime
+    user = await users_collection.find_one({"user_id": user_id}) or {}
+    learner_profile = user.get("learner_profile", {
+        "mastery_score": 50,
+        "level": "Intermediate",
+        "quizzes_completed": 0,
+        "challenges_completed": 0,
+        "topics_studied": [],
+        "strengths": [],
+        "weaknesses": []
+    })
+
+    # Update quiz stats
+    if "quiz_score" in update_data:
+        score = update_data["quiz_score"] # percentage 0-100
+        total_quizzes = learner_profile.get("quizzes_completed", 0) + 1
+        current_mastery = learner_profile.get("mastery_score", 50)
+        # Weighted moving average
+        new_mastery = round((current_mastery * 0.7) + (score * 0.3), 1)
+        learner_profile["quizzes_completed"] = total_quizzes
+        learner_profile["mastery_score"] = new_mastery
+
+    if "topic" in update_data and update_data["topic"]:
+        topics = set(learner_profile.get("topics_studied", []))
+        topics.add(update_data["topic"])
+        learner_profile["topics_studied"] = list(topics)
+
+    # Recalculate level
+    mastery = learner_profile.get("mastery_score", 50)
+    if mastery >= 80:
+        learner_profile["level"] = "Advanced"
+    elif mastery >= 50:
+        learner_profile["level"] = "Intermediate"
+    else:
+        learner_profile["level"] = "Beginner"
+
+    learner_profile["last_updated"] = datetime.now()
+
+    await users_collection.update_one(
+        {"user_id": user_id},
+        {"$set": {"learner_profile": learner_profile}},
+        upsert=True
+    )
+    return learner_profile
+
+async def get_learner_knowledge(user_id: str):
+    """Fetch user's current knowledge base state and adaptive profile."""
+    user = await users_collection.find_one({"user_id": user_id})
+    if not user or "learner_profile" not in user:
+        return {
+            "mastery_score": 50,
+            "level": "Intermediate",
+            "quizzes_completed": 0,
+            "challenges_completed": 0,
+            "topics_studied": [],
+            "strengths": ["General Concepts"],
+            "weaknesses": []
+        }
+    return user["learner_profile"]
+

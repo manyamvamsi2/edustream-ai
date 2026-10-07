@@ -23,10 +23,11 @@ def check_groq():
         print("❌ GROQ_API_KEY is MISSING in .env.")
         return
     
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     data = {
-        "model": "llama-3.3-70b-versatile",
+        "model": model,
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 5
     }

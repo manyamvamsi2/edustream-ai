@@ -14,7 +14,7 @@ def generate_completion(prompt: str) -> str:
         print("[!] ERROR: GROQ_API_KEY missing in .env")
         return "GROQ_API_KEY_MISSING"
 
-    model = "llama-3.3-70b-versatile"
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}"}
     data = {

@@ -1,46 +1,71 @@
 from groq_api import generate_completion
 from vectordb import search_chunks
 
-async def answer_video_query(video_id: str, query: str) -> dict:
+async def answer_video_query(video_id: str, query: str, content_type: str = "video") -> dict:
     """
-    Retrieves context from the video's transcript in MongoDB and asks the LLM to answer the query.
-    Returns the answer and the timestamp references used.
+    Retrieves context from MongoDB and asks the LLM to answer the query.
+    Returns the answer and timestamp references (for video/audio only, omitted for documents).
     """
     relevant_chunks = await search_chunks(video_id, query, top_k=5)
+    
+    is_doc = content_type == "document" or (str(video_id).startswith("file_") and content_type != "audio" and content_type != "video")
     
     context_parts = []
     timestamps = []
     for i, chunk in enumerate(relevant_chunks):
-        start = round(chunk["start"], 2) if chunk["start"] is not None else 0
-        end = round(chunk["end"], 2) if chunk["end"] is not None else 0
+        start = round(chunk["start"], 2) if chunk.get("start") is not None else 0
+        end = round(chunk["end"], 2) if chunk.get("end") is not None else 0
         text = chunk["text"]
         
-        context_parts.append(f"[Time {start}s - {end}s]: {text}")
-        timestamps.append({"start": start, "end": end, "text": text[:50] + "..."})
+        if is_doc:
+            context_parts.append(f"[Document Excerpt]: {text}")
+        else:
+            # Format MM:SS
+            start_min = int(start // 60)
+            start_sec = int(start % 60)
+            time_tag = f"{start_min}:{start_sec:02d}"
+            context_parts.append(f"[Time {time_tag} ({start}s - {end}s)]: {text}")
+            timestamps.append({"start": start, "end": end, "text": text[:50] + "..."})
 
     context_str = "\n".join(context_parts)
 
+    if is_doc:
+        timeline_rule = """2. STRICTLY NO TIMESTAMPS OR VIDEO TIMELINE REFERENCES:
+   - This material is an uploaded DOCUMENT / PDF (NOT a video).
+   - NEVER output timestamps, time codes (e.g. 1:12, 166:40), or phrases like "Click any timestamp to jump to the recording".
+   - Answer purely in structured, conceptual narrative with bold terms, bullet points, and numbered steps."""
+        assistant_role = "You are EduStream AI, an intelligent, helpful interactive document and study assistant.\nAnswer the user's question clearly, accurately, and educationally using the document context below."
+        context_header = "Document Context:"
+    else:
+        timeline_rule = """2. CLICKABLE TIMELINE / TIMESTAMPS:
+   - When explaining any step, concept, or event from the video, naturally include a clickable timeline tag in the format: `[M:SS]` or `[MM:SS]` (for example: `[1:12]`, `[5:51]`, `[7:48]`, `[0:45]`).
+   - The frontend will automatically convert these into clean interactive timestamp buttons (e.g. 1:12) that let the user click to jump directly to that exact moment in the video and start playback.
+   - Place these timeline tags at the end of the relevant sentence or heading (e.g. "**Step 1: Setup Vector Store** [1:12]")."""
+        assistant_role = "You are EduStream AI, an intelligent, helpful interactive video learning assistant.\nAnswer the user's question clearly, accurately, and educationally using the video transcript context below."
+        context_header = "Video Transcript Context:"
+
     prompt = f"""
-Answer the question based on the video transcript. If the question is not related to the video, you may answer it based on your general knowledge.
-If the user is just saying hello or greeting you, greet them back playfully as an AI Learning Assistant.
+{assistant_role}
 
-CRITICAL FORMATTING RULES:
-1. Include timestamps (e.g., (time 12.5s - 15.0s) or (28.48s)) in your answer where relevant to support your points.
-2. For EXPLICITLY Technical/Programming content:
-   - ONLY include code if the video is about software development, coding, or technical tools. 
-   - DO NOT provide coding examples for non-technical topics like biology, medicine, history, etc.
-   - Use `inline code` (backticks) for method names, variables, keywords.
-   - Use ```multi-line block code``` for complete examples.
-   - For every code block, provide a clear explanation.
-   - Do NOT start a bullet point with a block-level code block.
-3. For Non-Technical Content (e.g., Biology, Science, Arts):
-   - ABSOLUTELY NO code blocks or coding-style metaphors. 
-   - Focus entirely on the subject matter using professional educational language.
+STRICT FORMATTING & OUTPUT RULES:
+1. STRICTLY NO TABLES OR COLUMNS:
+   - NEVER output markdown tables (| col | col |), summary tables, or multi-column grids under any circumstances.
+   - Always present comparisons, workflows, and recaps as clean bullet lists (-) or numbered items (1., 2.) that fit cleanly in a single-column chat bubble.
 
-Transcript:
+{timeline_rule}
+
+3. NO UNNECESSARY CODE BLOCKS:
+   - DO NOT include code snippets or code blocks unless the user's query explicitly asks for code or syntax implementation.
+   - Explain processes and concepts conceptually in clear plain English.
+
+4. CONCISE & HELPFUL:
+   - If asked for a short summary, provide a concise, readable breakdown (e.g. Key Concepts, Main Steps, and Conclusion).
+   - If the user greets you or asks general questions, be warm, encouraging, and helpful.
+
+{context_header}
 {context_str}
 
-Question:
+User Question:
 {query}
 """
 
@@ -48,13 +73,14 @@ Question:
 
     return {
         "answer": answer,
-        "timestamps": timestamps
+        "timestamps": timestamps if not is_doc else []
     }
 
 def generate_smart_summary(video_id: str, full_transcript: str) -> dict:
     """
     Generates a smart summary, key points, and structured notes from the full transcript.
     """
+    import re
     max_len = 12000 # Roughly fits in most average context windows
     truncated_transcript = full_transcript[:max_len]
     
@@ -68,18 +94,12 @@ Your response must include:
 4. NOTES: Detailed, structured markdown notes. 
 
 CRITICAL REQUIREMENTS FOR NOTES:
+- **Code Usage Restriction**: 
+  - DO NOT include code snippets or code blocks across notes by default. Focus on conceptual understanding, key ideas, principles, definitions, and structured explanations.
+  - ONLY include a code snippet if the video is exclusively a coding tutorial AND a brief snippet is strictly essential to illustrate a core syntax point. Never add code blocks for general, theoretical, science, history, or non-programming content.
 - Use **Bold for all Heading titles** (e.g., ## **Heading Name**).
-- **Strict Content Conditioning**: 
-    - IF and ONLY IF the video is EXPLICITLY a programming tutorial or technical software guide, include code snippets.
-    - If the video is about ANY other topic (Biology, History, Math, Science, etc.), DO NOT include any code blocks, Python examples, or coding metaphors. Focus on conceptual depth.
-- **Formatting Technical Content**: 
-    - Use `inline code` (backticks) for technical keywords only if applicable.
-    - Use triple-backtick (```language) blocks ONLY for actual multi-line code examples.
-    - Every code block MUST have a "Context & Usage" explanation.
 - Use clear H1, H2, and H3 headers for hierarchy.
-- For Non-Coding Content: Focus on deep explanations, analogies, and key facts. NO coding metadata.
-- Use bold text for important terms.
-- Ensure perfect vertical alignment and professional spacing.
+- Use bullet points, bold terms, and concise paragraphs for high readability.
 - **Multi-Language Support**: If the transcript is NOT in English, you MUST translate all your output (Summary, Key Points, Vocabulary, and Notes) into professional English.
 
 Format your response exactly as follows:
@@ -105,7 +125,7 @@ Transcript:
     
     full_response = generate_completion(prompt)
     
-    summary = "Summary generation failed."
+    summary = ""
     key_points = []
     vocabulary = []
     notes = ""
@@ -120,28 +140,49 @@ Transcript:
              ]
              notes = "### Mock Notes\n\nThese are mock structured notes."
         else:
-            parts = full_response.split("SUMMARY:")
-            if len(parts) > 1:
-                rest = parts[1]
-                summary_part = rest.split("KEY_POINTS:")[0].strip()
-                summary = summary_part
-                
-                rest2 = rest.split("KEY_POINTS:")[1]
-                kp_part = rest2.split("VOCABULARY:")[0].strip()
-                key_points = [line.replace("- ", "").strip() for line in kp_part.split("\n") if line.strip()]
-                
-                rest3 = rest2.split("VOCABULARY:")[1]
-                vocab_part = rest3.split("NOTES:")[0].strip()
-                vocabulary = []
-                for line in vocab_part.split("\n"):
-                    if ":" in line:
-                        term_def = line.replace("- ", "").strip().split(":", 1)
-                        vocabulary.append({"term": term_def[0].strip(), "definition": term_def[1].strip()})
-                
-                notes = rest3.split("NOTES:")[1].strip()
+            cleaned_resp = full_response.strip()
+            
+            # Robust regex extraction for each section
+            summary_match = re.search(r'(?:^|\n)(?:#+\s*|\*{0,2})(?:1\.\s*)?SUMMARY:?\*{0,2}\s*\n?(.*?)(?=(?:^|\n)(?:#+\s*|\*{0,2})(?:2\.\s*)?KEY[_\s]POINTS:?|\Z)', cleaned_resp, re.DOTALL | re.IGNORECASE)
+            key_points_match = re.search(r'(?:^|\n)(?:#+\s*|\*{0,2})(?:2\.\s*)?KEY[_\s]POINTS:?\*{0,2}\s*\n?(.*?)(?=(?:^|\n)(?:#+\s*|\*{0,2})(?:3\.\s*)?VOCABULARY:?|\Z)', cleaned_resp, re.DOTALL | re.IGNORECASE)
+            vocab_match = re.search(r'(?:^|\n)(?:#+\s*|\*{0,2})(?:3\.\s*)?VOCABULARY:?\*{0,2}\s*\n?(.*?)(?=(?:^|\n)(?:#+\s*|\*{0,2})(?:4\.\s*)?(?:STRUCTURED\s+)?NOTES:?|\Z)', cleaned_resp, re.DOTALL | re.IGNORECASE)
+            notes_match = re.search(r'(?:^|\n)(?:#+\s*|\*{0,2})(?:4\.\s*)?(?:STRUCTURED\s+)?NOTES:?\*{0,2}\s*\n?(.*)$', cleaned_resp, re.DOTALL | re.IGNORECASE)
+
+            if summary_match and summary_match.group(1).strip():
+                summary = summary_match.group(1).strip()
+            if key_points_match and key_points_match.group(1).strip():
+                raw_kp = key_points_match.group(1).strip()
+                key_points = [re.sub(r'^[*\-•\d\.\s]+', '', line).strip() for line in raw_kp.split('\n') if line.strip() and not line.strip().startswith('---')]
+            if vocab_match and vocab_match.group(1).strip():
+                raw_vocab = vocab_match.group(1).strip()
+                for line in raw_vocab.split('\n'):
+                    cleaned_line = re.sub(r'^[*\-•\s]+', '', line).strip()
+                    if ':' in cleaned_line:
+                        term_def = cleaned_line.split(':', 1)
+                        term = term_def[0].replace('**', '').replace('*', '').strip()
+                        defn = term_def[1].strip()
+                        if term and defn:
+                            vocabulary.append({"term": term, "definition": defn})
+            if notes_match and notes_match.group(1).strip():
+                notes = notes_match.group(1).strip()
+                notes = re.sub(r'\n---+\s*$', '', notes).strip()
+
+            # Clean summary from any lingering section header or dashes
+            summary = re.sub(r'^[\s\-\*#]*(?:SUMMARY:?)?[\s\-\*#]*', '', summary, flags=re.IGNORECASE).strip()
+            summary = re.sub(r'---+\s*$', '', summary).strip()
+
+            # Fallbacks if regex missed specific markers
+            if not summary:
+                paragraphs = [p.strip() for p in cleaned_resp.split('\n\n') if p.strip() and not p.strip().startswith('#') and not p.strip().startswith('---')]
+                summary = paragraphs[0] if paragraphs else "Summary generated."
+            if not notes and not key_points:
+                notes = cleaned_resp
     except Exception as e:
         print(f"Error parsing summary: {e}")
-        summary = full_response
+        # Even on exception, extract first paragraph instead of dumping raw string
+        paragraphs = [p.strip() for p in full_response.split('\n\n') if p.strip() and not p.strip().startswith('#') and not p.strip().startswith('---')]
+        summary = paragraphs[0] if paragraphs else full_response[:300]
+        notes = full_response
         
     return {
         "short_summary": summary,
@@ -360,22 +401,163 @@ def generate_mind_map(video_id: str, transcript: str) -> dict:
     Generates a structured mind map JSON from the transcript.
     """
     prompt = f"""
-You are an AI Mind Map Designer. Create a hierarchical mind map based on the following transcript.
+You are an expert Educational Concept Mapper. Create a structured, hierarchical visual mind map JSON based on the learning transcript below.
 
-Structure:
-1. Center: The core topic of the video (short, 1-3 words).
-2. Branches: Top-level sub-topics (3 to 6 branches).
-3. Details: A list of 3-5 key bullet points for each branch.
-
-Respond ONLY with a valid JSON object in this format:
+Return ONLY a valid JSON object matching this schema:
 {{
-  "center": "Core Topic Name",
+  "center": "Core Subject (2-4 words)",
+  "description": "A concise summary sentence about the topic",
   "branches": [
     {{
       "id": "1",
-      "label": "First Sub-topic",
-      "details": ["Detail 1", "Detail 2", "Detail 3"]
+      "label": "Topic or Stage Name",
+      "color": "indigo",
+      "details": [
+        "Key takeaway or concept 1",
+        "Key takeaway or concept 2",
+        "Key takeaway or concept 3"
+      ]
     }}
+  ]
+}}
+
+Colors to choose from: "indigo", "blue", "emerald", "amber", "purple", "rose", "cyan". Provide between 4 and 6 comprehensive branches with 3-4 details each.
+
+Transcript:
+{transcript[:8000]}
+"""
+    response = generate_completion(prompt)
+    try:
+        import json
+        import re
+        
+        # Clean markdown codeblocks
+        clean_resp = re.sub(r'```json\s*', '', response)
+        clean_resp = re.sub(r'```\s*', '', clean_resp).strip()
+        
+        match = re.search(r'\{.*\}', clean_resp, re.DOTALL)
+        if match:
+            parsed = json.loads(match.group())
+            if "branches" in parsed and isinstance(parsed["branches"], list) and len(parsed["branches"]) > 0:
+                return parsed
+        
+        json_start = clean_resp.find('{')
+        json_end = clean_resp.rfind('}')
+        if json_start != -1 and json_end != -1:
+            parsed = json.loads(clean_resp[json_start:json_end+1])
+            if "branches" in parsed and isinstance(parsed["branches"], list):
+                return parsed
+                
+        return {"center": "Core Concepts", "description": "Key concepts breakdown", "branches": []}
+    except Exception as e:
+        print(f"[MINDMAP] Error parsing mindmap: {e}")
+        return {"center": "Core Concepts", "description": "Key concepts breakdown", "branches": []}
+
+def generate_similar_problems(video_id: str, transcript: str, difficulty: str = "Medium", topic: str = "") -> list:
+    """
+    Service: Similar Problems
+    Generates 3-4 similar practice problems / exercises based on concepts taught in the video/document.
+    Adapts according to requested difficulty level (Easy, Medium, Hard).
+    """
+    diff_instructions = {
+        "Easy": "Beginner level: direct application of formulas or concepts with simple numbers/scenarios.",
+        "Medium": "Intermediate level: requires combining two concepts, diagnosing a scenario, or multi-step reasoning.",
+        "Hard": "Advanced level: tricky edge-cases, deep conceptual trade-offs, synthesis, or rigorous problem-solving."
+    }.get(difficulty.capitalize(), "Intermediate application of concepts.")
+
+    topic_prompt = f"Focus particularly on the topic: {topic}." if topic else ""
+
+    prompt = f"""
+You are an expert Professor and Curriculum Designer. Analyze the following educational transcript.
+CONDITION:
+- IF the transcript covers programming, coding, algorithms, mathematics, quantitative problem-solving, logic, system design, or technical exercises, generate 3 to 4 high-quality SIMILAR PRACTICE PROBLEMS for the learner to solve.
+- IF the transcript is purely conversational, narrative, historical, biographical, artistic, or does NOT contain technical/quantitative problem-solving concepts, return an empty JSON array: [].
+
+Target Difficulty: {difficulty.upper()} ({diff_instructions})
+{topic_prompt}
+
+For each problem, provide:
+- "id": A unique string (e.g., "prob_1", "prob_2")
+- "title": A clear descriptive title
+- "difficulty": "{difficulty.capitalize()}"
+- "type": One of "Conceptual", "Calculation", "Scenario Analysis", "Code/Algorithm"
+- "problem_statement": Clear problem description in markdown with formatting.
+- "hints": A list of 2-3 progressive hints that help the student without immediately giving away the answer.
+- "solution": Detailed, step-by-step worked solution and final answer.
+- "key_takeaway": The core rule or intuition being tested.
+
+Respond ONLY with a valid JSON array:
+[
+  {{
+    "id": "prob_1",
+    "title": "...",
+    "difficulty": "{difficulty.capitalize()}",
+    "type": "...",
+    "problem_statement": "...",
+    "hints": ["Hint 1", "Hint 2"],
+    "solution": "...",
+    "key_takeaway": "..."
+  }}
+]
+
+Transcript:
+{transcript[:8000]}
+"""
+    response = generate_completion(prompt)
+    try:
+        import json
+        import re
+        clean_resp = re.sub(r'```json\s*', '', response)
+        clean_resp = re.sub(r'```\s*', '', clean_resp).strip()
+        match = re.search(r'\[.*\]', clean_resp, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return []
+    except Exception as e:
+        print(f"[SIMILAR PROBLEMS] Error: {e}")
+        return []
+
+def generate_recommendations(video_id: str, transcript: str, user_profile: dict = None) -> dict:
+    """
+    Service: Recommendations
+    Generates tailored next-step recommendations, prerequisites, search queries, and learning paths.
+    """
+    interests = user_profile.get("interests", []) if user_profile else []
+    interests_str = f"User Interests: {', '.join(interests)}" if interests else ""
+
+    prompt = f"""
+You are an AI Academic Advisor and Learning Strategist. Analyze this educational transcript and generate personalized LEARNING RECOMMENDATIONS for the student.
+{interests_str}
+
+Return ONLY a valid JSON object matching this schema:
+{{
+  "recommended_topics": [
+    {{
+      "title": "Next Topic Name",
+      "reason": "Why the student should study this next and how it builds on this material",
+      "difficulty": "Intermediate or Advanced"
+    }}
+  ],
+  "prerequisites": [
+    {{
+      "concept": "Foundational Concept",
+      "summary": "Brief refresher summary in case the learner found this material challenging"
+    }}
+  ],
+  "curated_search_queries": [
+    "Exact query 1 for YouTube or Google Scholar",
+    "Exact query 2 for YouTube or Google Scholar",
+    "Exact query 3 for YouTube or Google Scholar"
+  ],
+  "hands_on_project": {{
+    "title": "Mini Practice Project / Experiment",
+    "description": "A practical project or thought experiment to apply what was learned",
+    "deliverable": "What the user should produce"
+  }},
+  "action_plan": [
+    "Step 1: Immediate recap action",
+    "Step 2: Deepening exercise",
+    "Step 3: Exploration step"
   ]
 }}
 
@@ -386,16 +568,25 @@ Transcript:
     try:
         import json
         import re
-        match = re.search(r'\{.*\}', response, re.DOTALL)
+        clean_resp = re.sub(r'```json\s*', '', response)
+        clean_resp = re.sub(r'```\s*', '', clean_resp).strip()
+        match = re.search(r'\{.*\}', clean_resp, re.DOTALL)
         if match:
-             return json.loads(match.group())
-             
-        # Simpler search if re fails
-        json_start = response.find('{')
-        json_end = response.rfind('}')
-        if json_start != -1 and json_end != -1:
-            return json.loads(response[json_start:json_end+2])
-            
-        return {"center": "Topic Mapping", "branches": []}
-    except:
-        return {"center": "Visual Analysis", "branches": []}
+            return json.loads(match.group())
+        return {
+            "recommended_topics": [],
+            "prerequisites": [],
+            "curated_search_queries": [],
+            "hands_on_project": {},
+            "action_plan": []
+        }
+    except Exception as e:
+        print(f"[RECOMMENDATIONS] Error: {e}")
+        return {
+            "recommended_topics": [],
+            "prerequisites": [],
+            "curated_search_queries": [],
+            "hands_on_project": {},
+            "action_plan": []
+        }
+
