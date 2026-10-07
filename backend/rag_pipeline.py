@@ -1,5 +1,11 @@
+import json
+import re
+import logging
+from typing import Dict, List, Any
 from groq_api import generate_completion
 from vectordb import search_chunks
+
+logger = logging.getLogger(__name__)
 
 async def answer_video_query(video_id: str, query: str, content_type: str = "video") -> dict:
     """
@@ -13,9 +19,9 @@ async def answer_video_query(video_id: str, query: str, content_type: str = "vid
     context_parts = []
     timestamps = []
     for i, chunk in enumerate(relevant_chunks):
-        start = round(chunk["start"], 2) if chunk.get("start") is not None else 0
-        end = round(chunk["end"], 2) if chunk.get("end") is not None else 0
-        text = chunk["text"]
+        start = round(chunk.get("start", 0) or 0, 2)
+        end = round(chunk.get("end", 0) or 0, 2)
+        text = chunk.get("text", "")
         
         if is_doc:
             context_parts.append(f"[Document Excerpt]: {text}")
@@ -80,8 +86,7 @@ def generate_smart_summary(video_id: str, full_transcript: str) -> dict:
     """
     Generates a smart summary, key points, and structured notes from the full transcript.
     """
-    import re
-    max_len = 12000 # Roughly fits in most average context windows
+    max_len = 12000  # Roughly fits in most average context windows
     truncated_transcript = full_transcript[:max_len]
     
     prompt = f"""
@@ -132,13 +137,13 @@ Transcript:
     
     try:
         if "fallback mock response" in full_response:
-             summary = "This is a mock summary fallback due to missing API keys."
-             key_points = ["Mock point 1", "Mock point 2", "Mock point 3", "Mock point 4", "Mock point 5"]
-             vocabulary = [
-                 {"term": "Mock Term 1", "definition": "This is a mock definition for term 1."},
-                 {"term": "Mock Term 2", "definition": "This is a mock definition for term 2."}
-             ]
-             notes = "### Mock Notes\n\nThese are mock structured notes."
+            summary = "This is a mock summary fallback due to missing API keys."
+            key_points = ["Mock point 1", "Mock point 2", "Mock point 3", "Mock point 4", "Mock point 5"]
+            vocabulary = [
+                {"term": "Mock Term 1", "definition": "This is a mock definition for term 1."},
+                {"term": "Mock Term 2", "definition": "This is a mock definition for term 2."}
+            ]
+            notes = "### Mock Notes\n\nThese are mock structured notes."
         else:
             cleaned_resp = full_response.strip()
             
@@ -178,7 +183,7 @@ Transcript:
             if not notes and not key_points:
                 notes = cleaned_resp
     except Exception as e:
-        print(f"Error parsing summary: {e}")
+        logger.error(f"Error parsing summary: {e}", exc_info=True)
         # Even on exception, extract first paragraph instead of dumping raw string
         paragraphs = [p.strip() for p in full_response.split('\n\n') if p.strip() and not p.strip().startswith('#') and not p.strip().startswith('---')]
         summary = paragraphs[0] if paragraphs else full_response[:300]
@@ -196,7 +201,6 @@ def extract_code_snippets(notes: str) -> list:
     """
     Parses markdown notes to extract code blocks.
     """
-    import re
     snippets = []
     # Match ```language\ncode\n``` blocks
     pattern = r"```(\w+)?\n(.*?)\n```"
@@ -246,12 +250,14 @@ Transcript:
 """
     response = generate_completion(prompt)
     try:
-        import json
-        import re
         # Clean potential markdown code blocks
-        json_str = re.search(r'\[.*\]', response, re.DOTALL).group()
-        return json.loads(json_str)
-    except:
+        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            return json.loads(json_str)
+        return []
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning(f"Failed to parse flashcards JSON: {e}")
         return []
 
 
@@ -259,9 +265,12 @@ def generate_chapters(video_id: str, segments: list) -> list:
     """
     Identifies logical chapters with titles and timestamps from transcription segments.
     """
+    if not segments:
+        return [{"title": "Introduction", "timestamp": 0.0}]
+    
     # Sample every 5th segment to fit in context
     context_segments = segments[::5]
-    segments_str = "\n".join([f"[{s['start']}s]: {s['text']}" for s in context_segments])
+    segments_str = "\n".join([f"[{s.get('start', 0)}s]: {s.get('text', '')}" for s in context_segments])
     
     prompt = f"""
 Analyze the following transcript fragments and identify 4-6 major logical "Chapters".
@@ -279,11 +288,13 @@ Segments:
 """
     response = generate_completion(prompt)
     try:
-        import json
-        import re
-        json_str = re.search(r'\[.*\]', response, re.DOTALL).group()
-        return json.loads(json_str)
-    except:
+        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            return json.loads(json_str)
+        return [{"title": "Introduction", "timestamp": 0.0}]
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning(f"Failed to parse chapters JSON: {e}")
         return [{"title": "Introduction", "timestamp": 0.0}]
 
 def generate_coding_challenges(video_id: str, full_transcript: str) -> list:
@@ -334,11 +345,13 @@ Transcript:
 """
     response = generate_completion(prompt)
     try:
-        import json
-        import re
-        json_str = re.search(r'\[.*\]', response, re.DOTALL).group()
-        return json.loads(json_str)
-    except:
+        json_match = re.search(r'\[.*\]', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            return json.loads(json_str)
+        return []
+    except (json.JSONDecodeError, AttributeError) as e:
+        logger.warning(f"Failed to parse coding challenges JSON: {e}")
         return []
 
 def evaluate_user_code(problem_context: dict, user_code: str) -> dict:
@@ -351,11 +364,11 @@ def evaluate_user_code(problem_context: dict, user_code: str) -> dict:
     prompt = f"""
 You are an AI Code Sandbox and Evaluator. Evaluate the user's code submission for the following problem.
 
-Problem: {problem_context.get('title')}
-Difficulty: {problem_context.get('difficulty')}
-Statement: {problem_context.get('problem_statement')}
+Problem: {problem_context.get('title', 'Unknown')}
+Difficulty: {problem_context.get('difficulty', 'Unknown')}
+Statement: {problem_context.get('problem_statement', 'Unknown')}
 Constraints: {constraints}
-Expected Language: {problem_context.get('language')}
+Expected Language: {problem_context.get('language', 'Unknown')}
 
 Test Cases (Evaluate against these):
 {test_cases}
@@ -387,14 +400,13 @@ Respond ONLY with a valid JSON object:
 """
     response = generate_completion(prompt)
     try:
-        import json
-        import re
         match = re.search(r'\{.*\}', response, re.DOTALL)
         if match:
-             return json.loads(match.group())
+            return json.loads(match.group())
         return {"is_correct": False, "overall_feedback": "Could not parse AI response.", "results": []}
-    except Exception as e:
-        return {"is_correct": False, "overall_feedback": f"Error: {e}", "results": []}
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Error evaluating code: {e}", exc_info=True)
+        return {"is_correct": False, "overall_feedback": f"Error: {str(e)}", "results": []}
 
 def generate_mind_map(video_id: str, transcript: str) -> dict:
     """
@@ -566,8 +578,6 @@ Transcript:
 """
     response = generate_completion(prompt)
     try:
-        import json
-        import re
         clean_resp = re.sub(r'```json\s*', '', response)
         clean_resp = re.sub(r'```\s*', '', clean_resp).strip()
         match = re.search(r'\{.*\}', clean_resp, re.DOTALL)
@@ -581,7 +591,7 @@ Transcript:
             "action_plan": []
         }
     except Exception as e:
-        print(f"[RECOMMENDATIONS] Error: {e}")
+        logger.error(f"[RECOMMENDATIONS] Error parsing recommendations: {e}", exc_info=True)
         return {
             "recommended_topics": [],
             "prerequisites": [],
