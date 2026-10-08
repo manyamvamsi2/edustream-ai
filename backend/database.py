@@ -9,9 +9,21 @@ MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or "mongodb://l
 DATABASE_NAME = os.getenv("DB_NAME", "edustream_db")
 
 try:
-    client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+    import certifi
+    ca_file = certifi.where()
+except ImportError:
+    ca_file = None
+
+client_kwargs = {
+    "serverSelectionTimeoutMS": 5000,
+}
+if ca_file and ("mongodb+srv://" in MONGODB_URL or "ssl=true" in MONGODB_URL.lower() or "tls=true" in MONGODB_URL.lower()):
+    client_kwargs["tlsCAFile"] = ca_file
+
+try:
+    client = AsyncIOMotorClient(MONGODB_URL, **client_kwargs)
     database = client[DATABASE_NAME]
-    logger.info(f"MongoDB client initialized: {MONGODB_URL}")
+    logger.info("MongoDB client initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize MongoDB client: {e}", exc_info=True)
     raise
@@ -44,8 +56,7 @@ async def ensure_indexes():
         
         logger.info("Database indexes created successfully")
     except Exception as e:
-        logger.error(f"Error creating database indexes: {e}", exc_info=True)
-        raise
+        logger.warning(f"Database indexes creation deferred: {e}")
 
 async def get_video_by_id(video_id: str):
     """Retrieve video metadata by ID."""

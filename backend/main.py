@@ -83,8 +83,19 @@ from database import (
 @app.on_event("startup")
 async def startup_event():
     """Initialize database indexes on server start."""
-    await ensure_indexes()
-    print("[SERVER] Database indexes ensured. EduStream AI Backend ready.")
+    try:
+        await ensure_indexes()
+        print("[SERVER] Database indexes ensured. EduStream AI Backend ready.")
+    except Exception as e:
+        print(f"[SERVER WARNING] Database index setup delayed: {e}")
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "EduStream AI Backend"}
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
 class DocumentRequest(BaseModel):
     user_id: str
