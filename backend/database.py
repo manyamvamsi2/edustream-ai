@@ -5,8 +5,8 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-DATABASE_NAME = "edustream_db"
+MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGO_URI") or "mongodb://localhost:27017"
+DATABASE_NAME = os.getenv("DB_NAME", "edustream_db")
 
 try:
     client = AsyncIOMotorClient(MONGODB_URL, serverSelectionTimeoutMS=5000)

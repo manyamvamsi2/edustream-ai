@@ -4,6 +4,7 @@ set -e
 
 echo "Installing dependencies..."
 pip install --upgrade pip setuptools wheel
+pip install torch --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 
 echo "Build completed successfully!"
