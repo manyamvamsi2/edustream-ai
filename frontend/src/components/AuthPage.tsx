@@ -1,6 +1,12 @@
 "use client";
-import { useState } from "react";
-import { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword 
+} from "firebase/auth";
 import { auth, googleProvider } from "@/lib/firebase_config";
 import { Mail, Lock, Zap, ArrowLeft } from "lucide-react";
 
@@ -11,12 +17,45 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    // Handle redirect result if signInWithRedirect was used
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          onAuthSuccess();
+        }
+      })
+      .catch((err: any) => {
+        if (err?.code === "auth/unauthorized-domain") {
+          setError("Domain not authorized in Firebase. Please add 'edustream-ai.vercel.app' in Firebase Console > Authentication > Settings > Authorized domains.");
+        } else if (err?.message) {
+          setError(err.message);
+        }
+      });
+  }, [onAuthSuccess]);
+
   const handleGoogleSignIn = async () => {
+    setError("");
+    setLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
       onAuthSuccess();
     } catch (err: any) {
-      setError(err.message);
+      if (err?.code === "auth/popup-blocked" || err?.code === "auth/popup-closed-by-user") {
+        try {
+          // Automatic fallback to redirect method to bypass browser popup blockers
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          setError("Browser blocked the login popup. Please allow popups for this site or try email login.");
+        }
+      } else if (err?.code === "auth/unauthorized-domain") {
+        setError("Domain not authorized in Firebase. Add 'edustream-ai.vercel.app' to Firebase Console > Authentication > Settings > Authorized domains.");
+      } else {
+        setError(err?.message || "Failed to sign in with Google.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -32,9 +71,16 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
       }
       onAuthSuccess();
     } catch (err: any) {
-      setError(err.message);
+      if (err?.code === "auth/invalid-credential") {
+        setError("Invalid email or password.");
+      } else if (err?.code === "auth/email-already-in-use") {
+        setError("An account already exists with this email.");
+      } else {
+        setError(err?.message || "Authentication failed.");
+      }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
