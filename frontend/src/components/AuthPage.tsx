@@ -104,9 +104,15 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
           <h2 className="text-3xl font-black text-slate-900 text-center mb-2">
             {isLogin ? "Welcome Back" : "Create Account"}
           </h2>
-          <p className="text-slate-500 text-center mb-10 font-medium">
+          <p className="text-slate-500 text-center mb-6 font-medium">
             {isLogin ? "Log in to access your study workspace" : "Join EduStream AI to transform your learning"}
           </p>
+
+          {!process.env.NEXT_PUBLIC_FIREBASE_API_KEY && (
+            <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs font-medium leading-relaxed">
+              ⚠️ <strong>Action needed:</strong> Firebase keys are not active on this deployment yet. If you just added them in Vercel Settings, please go to <strong>Vercel &gt; Deployments &gt; Redeploy</strong> to bake them into the site.
+            </div>
+          )}
 
           <div className="mb-8">
             <button 
