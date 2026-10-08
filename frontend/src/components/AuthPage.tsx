@@ -34,28 +34,29 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
       });
   }, [onAuthSuccess]);
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = () => {
     setError("");
     setLoading(true);
-    try {
-      const res = await signInWithPopup(auth, googleProvider);
-      if (res.user) {
-        onAuthSuccess();
-      }
-    } catch (err: any) {
-      if (err?.code === "auth/popup-blocked") {
-        setError("Your browser blocked the Google sign-in window. Look for the 'Pop-up blocked' icon in your browser URL bar, choose 'Always allow', and try again.");
-      } else if (err?.code === "auth/unauthorized-domain") {
-        setError("Domain not authorized in Firebase. Please add 'edustream-ai.vercel.app' in Firebase Console > Authentication > Settings > Authorized domains.");
-      } else if (err?.code === "auth/popup-closed-by-user") {
-        // User voluntarily closed the window - no error needed
-        setError("");
-      } else {
-        setError(err?.message || "Failed to sign in with Google.");
-      }
-    } finally {
-      setLoading(false);
-    }
+    signInWithPopup(auth, googleProvider)
+      .then((res) => {
+        if (res.user) {
+          onAuthSuccess();
+        }
+      })
+      .catch((err: any) => {
+        if (err?.code === "auth/popup-blocked") {
+          setError("Pop-up was blocked. Please press Ctrl+R to reload the site with your new settings, or use Email login below.");
+        } else if (err?.code === "auth/unauthorized-domain") {
+          setError("Domain not authorized in Firebase. Please add 'edustream-ai.vercel.app' in Firebase Console > Authentication > Settings > Authorized domains.");
+        } else if (err?.code === "auth/popup-closed-by-user") {
+          setError("");
+        } else {
+          setError(err?.message || "Failed to sign in with Google.");
+        }
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
