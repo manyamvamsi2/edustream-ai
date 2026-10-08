@@ -38,19 +38,18 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
     setError("");
     setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
-      onAuthSuccess();
+      const res = await signInWithPopup(auth, googleProvider);
+      if (res.user) {
+        onAuthSuccess();
+      }
     } catch (err: any) {
-      if (err?.code === "auth/popup-blocked" || err?.code === "auth/popup-closed-by-user") {
-        try {
-          // Automatic fallback to redirect method to bypass browser popup blockers
-          await signInWithRedirect(auth, googleProvider);
-          return;
-        } catch (redirectErr: any) {
-          setError("Browser blocked the login popup. Please allow popups for this site or try email login.");
-        }
+      if (err?.code === "auth/popup-blocked") {
+        setError("Your browser blocked the Google sign-in window. Look for the 'Pop-up blocked' icon in your browser URL bar, choose 'Always allow', and try again.");
       } else if (err?.code === "auth/unauthorized-domain") {
-        setError("Domain not authorized in Firebase. Add 'edustream-ai.vercel.app' to Firebase Console > Authentication > Settings > Authorized domains.");
+        setError("Domain not authorized in Firebase. Please add 'edustream-ai.vercel.app' in Firebase Console > Authentication > Settings > Authorized domains.");
+      } else if (err?.code === "auth/popup-closed-by-user") {
+        // User voluntarily closed the window - no error needed
+        setError("");
       } else {
         setError(err?.message || "Failed to sign in with Google.");
       }
