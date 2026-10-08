@@ -172,7 +172,23 @@ export default function AuthPage({ onAuthSuccess, onClose }: { onAuthSuccess: ()
               />
             </div>
 
-            {error && <p className="text-rose-500 text-sm font-bold text-center mt-2">{error}</p>}
+            {error && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-rose-600 text-xs font-bold text-center mt-2 leading-relaxed">
+                <p>{error}</p>
+                {error.includes("blocked") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoading(true);
+                      signInWithRedirect(auth, googleProvider);
+                    }}
+                    className="mt-2 text-indigo-600 underline hover:text-indigo-800 font-extrabold block mx-auto text-xs"
+                  >
+                    👉 Click here to Login without Popups (Direct Redirect)
+                  </button>
+                )}
+              </div>
+            )}
 
             <button 
               type="submit" 

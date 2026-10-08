@@ -22,6 +22,16 @@ const nextConfig: NextConfig = {
     ],
   },
 
+  // Firebase Auth proxy rewrite to avoid third-party cookie blocking
+  async rewrites() {
+    return [
+      {
+        source: '/__/auth/:path*',
+        destination: 'https://event-5030a.firebaseapp.com/__/auth/:path*',
+      },
+    ];
+  },
+
   // Security headers
   async headers() {
     return [

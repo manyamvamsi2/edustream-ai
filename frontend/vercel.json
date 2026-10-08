@@ -1,3 +1,9 @@
 {
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "rewrites": [
+    {
+      "source": "/__/auth/:path*",
+      "destination": "https://event-5030a.firebaseapp.com/__/auth/:path*"
+    }
+  ]
 }
