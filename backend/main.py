@@ -11,7 +11,13 @@ from typing import Optional
 # Load environment variables
 load_dotenv()
 
-from video_downloader import download_youtube_audio, get_video_info as fetch_video_info, extract_audio_from_video
+from video_downloader import (
+    download_youtube_audio, 
+    get_video_info as fetch_video_info, 
+    extract_audio_from_video,
+    extract_youtube_id,
+    get_direct_youtube_transcript
+)
 from transcription import transcribe_audio
 from chunking import chunk_transcript
 from vectordb import store_chunks_in_db
@@ -120,13 +126,12 @@ from fastapi.responses import StreamingResponse
 async def process_video(request: VideoRequest, user_id: Optional[str] = "guest"):
     async def event_generator():
         try:
-            # Step 1: Info & Download
+            # Step 1: Info & Cache Check
             yield f"data: {json.dumps({'step': 'info', 'message': 'Fetching video metadata...', 'percent': 10})}\n\n"
             video_info = fetch_video_info(request.url)
             
-            yield f"data: {json.dumps({'step': 'download', 'message': 'Extracting audio from video...', 'percent': 25})}\n\n"
-            audio_path = download_youtube_audio(request.url)
-            video_id = os.path.basename(audio_path).split('.')[0]
+            yt_id = extract_youtube_id(request.url)
+            video_id = yt_id if yt_id else str(uuid.uuid4())
             
             # Check if already processed
             existing = await get_video_by_id(video_id)
@@ -144,9 +149,22 @@ async def process_video(request: VideoRequest, user_id: Optional[str] = "guest")
                 yield f"data: {json.dumps({'step': 'completed', 'video_id': video_id, 'message': 'Video ready!', 'percent': 100})}\n\n"
                 return
 
-            # Step 2: Transcribe
-            yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Transcribing audio (AI/Whisper)...', 'percent': 45})}\n\n"
-            transcript_res = transcribe_audio(audio_path)
+            # Step 2: Try direct transcript extraction (Fast & bypasses datacenter bot detection)
+            transcript_res = None
+            try:
+                yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Extracting lecture transcripts...', 'percent': 30})}\n\n"
+                transcript_res = get_direct_youtube_transcript(request.url)
+            except Exception:
+                transcript_res = None
+
+            # Fallback to audio download & Whisper if direct transcript was not available
+            if not transcript_res or not transcript_res.get("text"):
+                yield f"data: {json.dumps({'step': 'download', 'message': 'Downloading audio stream for AI transcription...', 'percent': 40})}\n\n"
+                audio_path = download_youtube_audio(request.url)
+                
+                yield f"data: {json.dumps({'step': 'transcribe', 'message': 'Transcribing audio (Groq AI)...', 'percent': 55})}\n\n"
+                transcript_res = transcribe_audio(audio_path)
+            
             full_transcript = transcript_res.get("text", "")
             
             # Step 3: Chunking & Vector DB
