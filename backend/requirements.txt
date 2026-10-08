@@ -21,3 +21,4 @@ python-pptx
 rank-bm25
 certifi
 dnspython
+cloudinary

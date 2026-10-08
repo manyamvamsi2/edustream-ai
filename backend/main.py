@@ -31,6 +31,7 @@ import docx
 from pptx import Presentation
 from quiz_generator import generate_quiz
 from fastapi.responses import FileResponse
+from cloudinary_storage import upload_file_to_cloudinary, is_cloudinary_configured
 
 app = FastAPI(
     title="AI Video Learning Assistant",
@@ -339,8 +340,15 @@ async def process_file(file: UploadFile = File(...), user_id: Optional[str] = "g
             flashcard_data = generate_flashcards(file_id, full_text)
             challenges_data = generate_coding_challenges(file_id, full_text)
             similar_problems_data = generate_similar_problems(file_id, full_text)
-            recommendations_data = generate_recommendations(file_id, full_text)
-            
+            # Step 4: Permanent Cloud Storage (Cloudinary if configured)
+            try:
+                res_type = "video" if (is_video or is_audio) else "auto"
+                cloud_url = upload_file_to_cloudinary(temp_path, public_id=file_id, resource_type=res_type)
+                if cloud_url:
+                    media_url = cloud_url
+            except Exception as up_err:
+                print(f"[CLOUDINARY] Upload notice: {up_err}")
+
             # Step 5: Save & History
             metadata = {
                 "video_id": file_id,
